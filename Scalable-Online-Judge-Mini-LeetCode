@@ -1,0 +1,161 @@
+# mini_leetcode_dashboard_with_sandbox.py
+import streamlit as st
+import pandas as pd
+import numpy as np
+import time
+import tempfile
+import subprocess
+import os
+import plotly.express as px
+
+st.set_page_config(page_title="Mini LeetCode Dashboard", layout="wide")
+st.title("💻 Mini LeetCode Dashboard with Code Sandbox")
+
+# -------------------------------
+# 1. Dummy Users & Problems
+# -------------------------------
+np.random.seed(42)
+num_users = 50
+num_problems = 5
+
+users = pd.DataFrame({
+    'user_id': range(1, num_users+1),
+    'username': [f'User{i}' for i in range(1, num_users+1)],
+    'score': np.random.randint(0, 500, num_users),
+    'submissions': np.random.randint(0, 20, num_users),
+    'last_login_day': np.random.randint(0,30, num_users)
+})
+
+problems = pd.DataFrame({
+    'problem_id': range(1, num_problems+1),
+    'title': [f'Problem {i}' for i in range(1, num_problems+1)],
+    'description': ["Write a function that prints 'Hello World'"]*num_problems,
+    'difficulty': np.random.choice(['Easy', 'Medium', 'Hard'], num_problems)
+})
+
+submissions = pd.DataFrame(columns=['submission_id','user_id','problem_id','code','status'])
+
+# -------------------------------
+# 2. Leaderboard
+# -------------------------------
+st.subheader("🏆 Leaderboard")
+leaderboard = users.sort_values('score', ascending=False)
+col1, col2 = st.columns([2,1])
+with col1:
+    st.dataframe(leaderboard[['username','score','submissions']])
+with col2:
+    fig_leaderboard = px.bar(leaderboard.head(10), x='username', y='score', color='score', 
+                             title="Top 10 Users by Score")
+    st.plotly_chart(fig_leaderboard, use_container_width=True)
+
+# -------------------------------
+# 3. User Analytics
+# -------------------------------
+st.subheader("📊 User Performance Analytics")
+DAU = (users['last_login_day'] <= 1).sum()
+MAU = (users['last_login_day'] <= 30).sum()
+st.metric("Daily Active Users (DAU)", DAU)
+st.metric("Monthly Active Users (MAU)", MAU)
+st.metric("DAU/MAU Ratio", f"{DAU/MAU:.2%}")
+
+# -------------------------------
+# 4. Contest Mode
+# -------------------------------
+st.subheader("⏱ Contest Mode Simulation")
+contest_time = st.slider("Contest Duration (minutes)", 1, 60, 5)
+st.write(f"Simulating a {contest_time}-minute contest...")
+
+if st.button("Start Contest Simulation"):
+    progress_bar = st.progress(0)
+    for i in range(100):
+        time.sleep(contest_time/100)
+        progress_bar.progress(i+1)
+    st.success("Contest Finished! Updating leaderboard...")
+    users['score'] += np.random.randint(0,20,size=num_users)
+    leaderboard = users.sort_values('score', ascending=False)
+    st.dataframe(leaderboard[['username','score','submissions']])
+
+# -------------------------------
+# 5. Problem Set
+# -------------------------------
+st.subheader("📚 Problem Set")
+selected_problem = st.selectbox("Select Problem", problems['title'])
+problem_data = problems[problems['title']==selected_problem].iloc[0]
+st.write(f"**Description:** {problem_data['description']}")
+st.write(f"**Difficulty:** {problem_data['difficulty']}")
+
+# -------------------------------
+# 6. Code Submission Sandbox
+# -------------------------------
+st.subheader("🖋 Submit Your Code")
+code_input = st.text_area("Write Python code here (function prints 'Hello World'):", height=150)
+
+if st.button("Run Code"):
+    if code_input.strip() == "":
+        st.warning("Please enter some code!")
+    else:
+        try:
+            # Write code to temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.py') as tmp:
+                tmp.write(code_input.encode())
+                tmp_path = tmp.name
+            # Run code safely
+            result = subprocess.run(['python', tmp_path], capture_output=True, timeout=3)
+            output = result.stdout.decode() + result.stderr.decode()
+            status = "Accepted" if result.returncode == 0 else "Error"
+        except subprocess.TimeoutExpired:
+            output = "Execution Timeout!"
+            status = "Timeout"
+        finally:
+            os.remove(tmp_path)
+        
+        # Display results
+        st.write(f"**Status:** {status}")
+        st.code(output)
+
+        # Update submissions & leaderboard (dummy logic)
+        new_submission = {'submission_id': len(submissions)+1, 'user_id': 1, 
+                          'problem_id': problem_data['problem_id'], 'code': code_input, 'status': status}
+        submissions.loc[len(submissions)] = new_submission
+        if status=="Accepted":
+            users.loc[users['user_id']==1,'score'] += 10
+            users.loc[users['user_id']==1,'submissions'] += 1
+        st.success("Submission recorded and leaderboard updated!")
+
+# -------------------------------
+# 7. User Submissions & Score Trends
+# -------------------------------
+st.subheader("📈 User Submissions & Score Trends")
+
+# Simulate submission dates for trend
+np.random.seed(42)
+submission_dates = pd.date_range(end=pd.Timestamp.today(), periods=200).to_list()
+submissions['submission_date'] = np.random.choice(submission_dates, len(submissions))
+
+# Submissions over time (all users)
+sub_per_day = submissions.groupby('submission_date').size().reset_index(name='Submissions')
+fig_submissions = px.line(sub_per_day, x='submission_date', y='Submissions', 
+                          title="Submissions Over Time")
+st.plotly_chart(fig_submissions, use_container_width=True)
+
+# Score trends of top 5 users
+top_users = users.sort_values('score', ascending=False).head(5)
+score_trend_data = []
+for user in top_users['username']:
+    # simulate score growth over last 30 days
+    scores = np.cumsum(np.random.randint(0,5,30))
+    dates = pd.date_range(end=pd.Timestamp.today(), periods=30)
+    df = pd.DataFrame({'date': dates, 'score': scores, 'user': user})
+    score_trend_data.append(df)
+
+score_trend_df = pd.concat(score_trend_data)
+fig_scores = px.line(score_trend_df, x='date', y='score', color='user', 
+                     title="Score Trends of Top 5 Users")
+st.plotly_chart(fig_scores, use_container_width=True)
+
+# DAU trend simulation
+users['login_date'] = pd.to_datetime('today') - pd.to_timedelta(users['last_login_day'], unit='d')
+dau_trend = users.groupby('login_date').size().reset_index(name='DAU')
+fig_dau_trend = px.line(dau_trend, x='login_date', y='DAU', title="DAU Trend")
+st.plotly_chart(fig_dau_trend, use_container_width=True)
+
